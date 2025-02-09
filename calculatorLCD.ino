@@ -2,7 +2,6 @@
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>
-
 #define LCD_RS_PIN  A1
 #define LCD_RW_PIN  A0
 #define LCD_E_PIN   2
@@ -10,7 +9,6 @@
 #define LCD_D5_PIN  A3
 #define LCD_D6_PIN  A4
 #define LCD_D7_PIN  A5
-
 #define LCD_RS_MASK (1<<PC1)
 #define LCD_RW_MASK (1<<PC0)
 #define LCD_D4_MASK (1<<PC2)
@@ -18,7 +16,6 @@
 #define LCD_D6_MASK (1<<PC4)
 #define LCD_D7_MASK (1<<PC5)
 #define LCD_E_MASK  (1<<PD2)
-
 static inline void lcdSendNibble(uint8_t nibble) {
   PORTC = (PORTC & ~((1<<PC2)|(1<<PC3)|(1<<PC4)|(1<<PC5))) | ((nibble & 0x0F)<<2);
   PORTD |= LCD_E_MASK; delayMicroseconds(1); PORTD &= ~LCD_E_MASK; delayMicroseconds(80);
@@ -48,7 +45,6 @@ void lcdPrint(const char *str){ while(*str) lcdWriteData(*str++); }
 void lcdPrintF(const __FlashStringHelper *str){
   PGM_P p = (PGM_P)str; char c; while((c=pgm_read_byte(p++))) lcdWriteData(c);
 }
-
 const byte rowPins[4]={7,8,9,10}, colPins[4]={3,4,5,6};
 const char keymap[4][4]={{'1','2','3','4'},{'5','6','7','8'},{'9','0','E','='},{'-','.','L','R'}};
 void keypadInit(){ for(int i=0;i<4;i++){ pinMode(rowPins[i],OUTPUT); digitalWrite(rowPins[i],HIGH); } for(int i=0;i<4;i++) pinMode(colPins[i],INPUT_PULLUP); }
@@ -62,7 +58,6 @@ char getKey(){
   }
   return 0;
 }
-
 enum CalcState { WAIT_OPERAND1, SELECT_OPERATION, WAIT_OPERAND2, SHOW_RESULT };
 CalcState calcState = WAIT_OPERAND1;
 char inputBuffer[17] = "";
