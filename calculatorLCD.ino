@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+// LCD pin definitions
 #define LCD_RS_PIN  A1
 #define LCD_RW_PIN  A0
 #define LCD_E_PIN   2
@@ -11,6 +12,7 @@
 #define LCD_D6_PIN  A4
 #define LCD_D7_PIN  A5
 
+// LCD mask definitions
 #define LCD_RS_MASK (1<<PC1)
 #define LCD_RW_MASK (1<<PC0)
 #define LCD_D4_MASK (1<<PC2)
@@ -19,14 +21,22 @@
 #define LCD_D7_MASK (1<<PC5)
 #define LCD_E_MASK  (1<<PD2)
 
+// Operation string stored in flash
+const char opStr[] PROGMEM = "+,-,*,/,sqrt,sin,cos,tan,log,pow,fact,exp,log10,log2,asin,acos,atan,sinh,cosh,tanh,cbrt,%";
+
+// --- LCD Functions ---
+
+// Send 4-bit nibble to LCD
 static inline void lcdSendNibble(uint8_t nibble) {
-  PORTC = (PORTC & ~((1 << PC2) | (1 << PC3) | (1 << PC4) | (1 << PC5))) | ((nibble & 0x0F) << 2);
+  PORTC = (PORTC & ~((1 << PC2) | (1 << PC3) | (1 << PC4) | (1 << PC5)))
+          | ((nibble & 0x0F) << 2);
   PORTD |= LCD_E_MASK;
   delayMicroseconds(1);
   PORTD &= ~LCD_E_MASK;
   delayMicroseconds(80);
 }
 
+// Send command to LCD
 static inline void lcdCommand(uint8_t cmd) {
   PORTC &= ~((1 << PC1) | (1 << PC0));
   lcdSendNibble(cmd >> 4);
@@ -34,6 +44,7 @@ static inline void lcdCommand(uint8_t cmd) {
   delay(2);
 }
 
+// Write data to LCD
 static inline void lcdWriteData(uint8_t data) {
   PORTC = (PORTC & ~((1 << PC1) | (1 << PC0))) | (1 << PC1);
   lcdSendNibble(data >> 4);
@@ -41,6 +52,7 @@ static inline void lcdWriteData(uint8_t data) {
   delay(2);
 }
 
+// Initialize the LCD
 void lcdInit() {
   DDRC |= (1 << PC0) | (1 << PC1) | (1 << PC2) | (1 << PC3) | (1 << PC4) | (1 << PC5);
   DDRD |= (1 << PD2);
@@ -63,27 +75,65 @@ void lcdInit() {
   lcdCommand(0x0C);
 }
 
+// Clear the LCD screen
 void lcdClear() {
   lcdCommand(0x01);
   delay(2);
 }
 
+// Set the LCD cursor position
 void lcdSetCursor(uint8_t col, uint8_t row) {
   const uint8_t row_offsets[] = {0x00, 0x40, 0x14, 0x54};
   lcdCommand(0x80 | (col + row_offsets[row]));
 }
 
+// Print a string from RAM
 void lcdPrint(const char *str) {
   while (*str)
     lcdWriteData(*str++);
 }
 
+// Print a string from flash
 void lcdPrintF(const __FlashStringHelper *str) {
   PGM_P p = (PGM_P)str;
   char c;
   while ((c = pgm_read_byte(p++)))
     lcdWriteData(c);
 }
+
+// Print the selected operation directly from flash
+void lcdPrintOperation(uint8_t index) {
+  uint8_t currentIndex = 0;
+  uint16_t i = 0;
+  char c;
+  while (true) {
+    c = pgm_read_byte_near(opStr + i);
+    if (c == '\0') break;         // End of string
+    if (currentIndex == index) {
+      // Print until a comma or end is reached
+      while (c != ',' && c != '\0') {
+        lcdWriteData(c);
+        i++;
+        c = pgm_read_byte_near(opStr + i);
+      }
+      break;
+    } else {
+      // Skip current operation
+      while (c != ',' && c != '\0') {
+        i++;
+        c = pgm_read_byte_near(opStr + i);
+      }
+      if (c == ',') {
+        currentIndex++;
+        i++;  // Skip comma
+      } else {
+        break;
+      }
+    }
+  }
+}
+
+// --- Keypad Functions ---
 
 const byte rowPins[4] = {7, 8, 9, 10};
 const byte colPins[4] = {3, 4, 5, 6};
@@ -94,6 +144,7 @@ const char keymap[4][4] = {
   {'-', '.', 'L', 'R'}
 };
 
+// Initialize keypad pins
 void keypadInit() {
   for (int i = 0; i < 4; i++) {
     pinMode(rowPins[i], OUTPUT);
@@ -104,6 +155,7 @@ void keypadInit() {
   }
 }
 
+// Read a key from the keypad
 char getKey() {
   for (int r = 0; r < 4; r++) {
     digitalWrite(rowPins[r], LOW);
@@ -121,6 +173,8 @@ char getKey() {
   return 0;
 }
 
+// --- Calculator Variables and Functions ---
+
 enum CalcState {
   WAIT_OPERAND1,
   SELECT_OPERATION,
@@ -134,38 +188,14 @@ uint8_t inputLength = 0;
 bool hasDecimalPoint = false;
 bool isNegative = false;
 float operand1 = 0.0, operand2 = 0.0, result = 0.0;
-int menuIndex = 0;
+uint8_t menuIndex = 0;
 const uint8_t NUM_OPERATIONS = 22;
-const char opStr[] PROGMEM = "+,-,*,/,sqrt,sin,cos,tan,log,pow,fact,exp,log10,log2,asin,acos,atan,sinh,cosh,tanh,cbrt,%";
-const uint32_t binaryOpsMask = (1UL << 0) | (1UL << 1) | (1UL << 2) | (1UL << 3) | (1UL << 9) | (1UL << 21);
 
-void getOperation(uint8_t index, char *buffer, uint8_t bufferSize) {
-  uint8_t currentIndex = 0, bufPos = 0;
-  uint16_t i = 0;
-  bool copying = false;
-  char c;
-  while (1) {
-    c = pgm_read_byte_near(opStr + i);
-    if (c == '\0')
-      break;
-    if (currentIndex == index)
-      copying = true;
-    if (c == ',') {
-      if (copying)
-        break;
-      else {
-        currentIndex++;
-        i++;
-        continue;
-      }
-    }
-    if (copying && bufPos < bufferSize - 1)
-      buffer[bufPos++] = c;
-    i++;
-  }
-  buffer[bufPos] = '\0';
-}
+// Bitmask for binary operations
+const uint32_t binaryOpsMask = (1UL << 0) | (1UL << 1) | (1UL << 2) |
+                               (1UL << 3) | (1UL << 9) | (1UL << 21);
 
+// Append a character to the input buffer
 void addCharToInput(char c) {
   if (inputLength < 16) {
     inputBuffer[inputLength++] = c;
@@ -173,6 +203,7 @@ void addCharToInput(char c) {
   }
 }
 
+// Remove the last character from the input buffer
 void removeCharFromInput() {
   if (inputLength > 0) {
     inputLength--;
@@ -180,6 +211,7 @@ void removeCharFromInput() {
   }
 }
 
+// Compute factorial (as a float)
 float factorial(float n) {
   if (n <= 1.0)
     return 1.0;
@@ -189,6 +221,7 @@ float factorial(float n) {
   return f;
 }
 
+// Perform the calculation based on the selected operation
 float calculate() {
   float res = 0.0;
   switch (menuIndex) {
@@ -282,6 +315,7 @@ float calculate() {
   return res;
 }
 
+// Process input keys for operands
 void processOperandKey(char key) {
   if (key >= '0' && key <= '9')
     addCharToInput(key);
@@ -330,6 +364,7 @@ void processOperandKey(char key) {
   updateDisplay();
 }
 
+// Process keys for selecting operations
 void processOperationKey(char key) {
   if (key == 'L')
     menuIndex = (menuIndex - 1 + NUM_OPERATIONS) % NUM_OPERATIONS;
@@ -348,6 +383,7 @@ void processOperationKey(char key) {
   updateDisplay();
 }
 
+// Update the LCD display based on the current state
 void updateDisplay() {
   lcdClear();
   switch (calcState) {
@@ -363,7 +399,7 @@ void updateDisplay() {
       lcdSetCursor(0, 0);
       lcdPrintF(F("Select:"));
       lcdSetCursor(0, 1);
-      { char opBuf[9]; getOperation(menuIndex, opBuf, sizeof(opBuf)); lcdPrint(opBuf); }
+      lcdPrintOperation(menuIndex);
       break;
     case WAIT_OPERAND2:
       lcdSetCursor(0, 0);
@@ -377,13 +413,18 @@ void updateDisplay() {
       lcdSetCursor(0, 0);
       lcdPrintF(F("Result:"));
       lcdSetCursor(0, 1);
-      { char resBuf[16]; dtostrf(result, 0, 2, resBuf); lcdPrint(resBuf); }
+      { 
+        char resBuf[16]; 
+        dtostrf(result, 0, 2, resBuf); 
+        lcdPrint(resBuf); 
+      }
       break;
     default:
       break;
   }
 }
 
+// Reset calculator to initial state
 void resetCalculator() {
   calcState = WAIT_OPERAND1;
   inputBuffer[0] = '\0';
@@ -394,6 +435,8 @@ void resetCalculator() {
   menuIndex = 0;
   updateDisplay();
 }
+
+// --- Arduino Setup and Loop ---
 
 void setup() {
   lcdInit();
