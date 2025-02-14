@@ -21,7 +21,7 @@
 #define LCD_D7_MASK (1<<PC5)
 #define LCD_E_MASK  (1<<PD2)
 
-const char opStr[] PROGMEM = "+,-,*,/,sqrt,sin,cos,tan,log,pow,fact,exp,log10,log2,cbrt,%,lin,quad";
+const char opStr[] PROGMEM = "+,-,*,/,sqrt,sin,cos,tan,log,pow,fact,exp,log10,log2,cbrt,%,ax+b=c,ax^2+bx+c=d";
 
 // --- LCD Functions ---
 static inline void lcdSendNibble(uint8_t nibble) {
