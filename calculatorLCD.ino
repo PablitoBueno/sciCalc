@@ -21,12 +21,10 @@
 #define LCD_D7_MASK (1<<PC5)
 #define LCD_E_MASK  (1<<PD2)
 
-// Operation string stored in flash (nova operação "lin" adicionada ao final)
-const char opStr[] PROGMEM = "+,-,*,/,sqrt,sin,cos,tan,log,pow,fact,exp,log10,log2,asin,acos,atan,sinh,cosh,tanh,cbrt,%,lin";
+// Operation string stored in flash (nova operação "lin" e "quad" adicionadas)
+const char opStr[] PROGMEM = "+,-,*,/,sqrt,sin,cos,tan,log,pow,fact,exp,log10,log2,asin,acos,atan,sinh,cosh,tanh,cbrt,%,lin,quad";
 
 // --- LCD Functions ---
-
-// Send 4-bit nibble to LCD
 static inline void lcdSendNibble(uint8_t nibble) {
   PORTC = (PORTC & ~((1 << PC2) | (1 << PC3) | (1 << PC4) | (1 << PC5)))
           | ((nibble & 0x0F) << 2);
@@ -36,7 +34,6 @@ static inline void lcdSendNibble(uint8_t nibble) {
   delayMicroseconds(80);
 }
 
-// Send command to LCD
 static inline void lcdCommand(uint8_t cmd) {
   PORTC &= ~((1 << PC1) | (1 << PC0));
   lcdSendNibble(cmd >> 4);
@@ -44,7 +41,6 @@ static inline void lcdCommand(uint8_t cmd) {
   delay(2);
 }
 
-// Write data to LCD
 static inline void lcdWriteData(uint8_t data) {
   PORTC = (PORTC & ~((1 << PC1) | (1 << PC0))) | (1 << PC1);
   lcdSendNibble(data >> 4);
@@ -52,7 +48,6 @@ static inline void lcdWriteData(uint8_t data) {
   delay(2);
 }
 
-// Initialize the LCD
 void lcdInit() {
   DDRC |= (1 << PC0) | (1 << PC1) | (1 << PC2) | (1 << PC3) | (1 << PC4) | (1 << PC5);
   DDRD |= (1 << PD2);
@@ -75,25 +70,21 @@ void lcdInit() {
   lcdCommand(0x0C);
 }
 
-// Clear the LCD screen
 void lcdClear() {
   lcdCommand(0x01);
   delay(2);
 }
 
-// Set the LCD cursor position
 void lcdSetCursor(uint8_t col, uint8_t row) {
   const uint8_t row_offsets[] = {0x00, 0x40, 0x14, 0x54};
   lcdCommand(0x80 | (col + row_offsets[row]));
 }
 
-// Print a string from RAM
 void lcdPrint(const char *str) {
   while (*str)
     lcdWriteData(*str++);
 }
 
-// Print a string from flash
 void lcdPrintF(const __FlashStringHelper *str) {
   PGM_P p = (PGM_P)str;
   char c;
@@ -101,16 +92,14 @@ void lcdPrintF(const __FlashStringHelper *str) {
     lcdWriteData(c);
 }
 
-// Print the selected operation directly from flash
 void lcdPrintOperation(uint8_t index) {
   uint8_t currentIndex = 0;
   uint16_t i = 0;
   char c;
   while (true) {
     c = pgm_read_byte_near(opStr + i);
-    if (c == '\0') break;         // End of string
+    if (c == '\0') break;
     if (currentIndex == index) {
-      // Print until a comma or fim de string seja alcançado
       while (c != ',' && c != '\0') {
         lcdWriteData(c);
         i++;
@@ -118,14 +107,13 @@ void lcdPrintOperation(uint8_t index) {
       }
       break;
     } else {
-      // Pula a operação atual
       while (c != ',' && c != '\0') {
         i++;
         c = pgm_read_byte_near(opStr + i);
       }
       if (c == ',') {
         currentIndex++;
-        i++;  // Pula a vírgula
+        i++;
       } else {
         break;
       }
@@ -134,7 +122,6 @@ void lcdPrintOperation(uint8_t index) {
 }
 
 // --- Keypad Functions ---
-
 const byte rowPins[4] = {7, 8, 9, 10};
 const byte colPins[4] = {3, 4, 5, 6};
 const char keymap[4][4] = {
@@ -144,7 +131,6 @@ const char keymap[4][4] = {
   {'-', '.', 'L', 'R'}
 };
 
-// Initialize keypad pins
 void keypadInit() {
   for (int i = 0; i < 4; i++) {
     pinMode(rowPins[i], OUTPUT);
@@ -155,7 +141,6 @@ void keypadInit() {
   }
 }
 
-// Read a key from the keypad
 char getKey() {
   for (int r = 0; r < 4; r++) {
     digitalWrite(rowPins[r], LOW);
@@ -174,11 +159,12 @@ char getKey() {
 }
 
 // --- Calculator Variables and Functions ---
-
 enum CalcState {
   WAIT_OPERAND1,
-  SELECT_OPERATION,
   WAIT_OPERAND2,
+  WAIT_OPERAND3,
+  WAIT_OPERAND4,
+  SELECT_OPERATION,
   SHOW_RESULT
 };
 CalcState calcState = WAIT_OPERAND1;
@@ -187,32 +173,26 @@ char inputBuffer[17] = "";
 uint8_t inputLength = 0;
 bool hasDecimalPoint = false;
 bool isNegative = false;
-float operand1 = 0.0, operand2 = 0.0, result = 0.0;
+
+float operand1 = 0.0, operand2 = 0.0, operand3 = 0.0, operand4 = 0.0;
+float result = 0.0;
 uint8_t menuIndex = 0;
-// Atualizado para 23 operações (nova operação incluída)
-const uint8_t NUM_OPERATIONS = 23;
+const uint8_t NUM_OPERATIONS = 24;
+uint8_t currentOperandIndex = 1;
 
-// Bitmask para operações binárias (nova operação "lin" incluída, índice 22)
-const uint32_t binaryOpsMask = (1UL << 0) | (1UL << 1) | (1UL << 2) |
-                               (1UL << 3) | (1UL << 9) | (1UL << 21) | (1UL << 22);
-
-// Adiciona um caractere no buffer de entrada
-void addCharToInput(char c) {
-  if (inputLength < 16) {
-    inputBuffer[inputLength++] = c;
-    inputBuffer[inputLength] = '\0';
+int getRequiredOperands(uint8_t opIndex) {
+  switch(opIndex) {
+    case 22: return 3; // "lin": ax+b=c
+    case 23: return 4; // "quad": ax^2+bx+c=d
+    default:
+      if(opIndex == 0 || opIndex == 1 || opIndex == 2 || opIndex == 3 ||
+         opIndex == 9 || opIndex == 21)
+        return 2;
+      else
+        return 1;
   }
 }
 
-// Remove o último caractere do buffer de entrada
-void removeCharFromInput() {
-  if (inputLength > 0) {
-    inputLength--;
-    inputBuffer[inputLength] = '\0';
-  }
-}
-
-// Calcula o fatorial (como float)
 float factorial(float n) {
   if (n <= 1.0)
     return 1.0;
@@ -222,7 +202,6 @@ float factorial(float n) {
   return f;
 }
 
-// Realiza o cálculo baseado na operação selecionada
 float calculate() {
   float res = 0.0;
   switch (menuIndex) {
@@ -310,9 +289,9 @@ float calculate() {
         return 0.0;
       }
       break;
-    case 22:  // Nova operação: Equação Linear (ax + b = 0)
+    case 22: // Linear: ax+b=c
       if (operand1 != 0.0)
-        res = -operand2 / operand1;  // x = -b/a
+        res = (operand3 - operand2) / operand1;
       else {
         lcdClear();
         lcdSetCursor(0, 0);
@@ -322,13 +301,49 @@ float calculate() {
         return 0.0;
       }
       break;
+    case 23: { // Quadrática: ax^2+bx+c=d
+      if (operand1 != 0.0) {
+        float disc = operand2 * operand2 - 4 * operand1 * (operand3 - operand4);
+        if (disc < 0) {
+          lcdClear();
+          lcdSetCursor(0, 0);
+          lcdPrintF(F("No Real Roots"));
+          delay(2000);
+          resetCalculator();
+          return 0.0;
+        } else {
+          res = (-operand2 + sqrt(disc)) / (2 * operand1);
+        }
+      } else {
+        lcdClear();
+        lcdSetCursor(0, 0);
+        lcdPrintF(F("Error: a=0"));
+        delay(2000);
+        resetCalculator();
+        return 0.0;
+      }
+    }
+      break;
     default:
       break;
   }
   return res;
 }
 
-// Processa as teclas para entrada de operandos
+void addCharToInput(char c) {
+  if (inputLength < 16) {
+    inputBuffer[inputLength++] = c;
+    inputBuffer[inputLength] = '\0';
+  }
+}
+
+void removeCharFromInput() {
+  if (inputLength > 0) {
+    inputLength--;
+    inputBuffer[inputLength] = '\0';
+  }
+}
+
 void processOperandKey(char key) {
   if (key >= '0' && key <= '9')
     addCharToInput(key);
@@ -346,26 +361,33 @@ void processOperandKey(char key) {
       if (inputBuffer[inputLength - 1] == '.')
         hasDecimalPoint = false;
       removeCharFromInput();
-    }
-    else {
-      if (calcState == WAIT_OPERAND2)
+    } else {
+      if (calcState != SELECT_OPERATION)
         calcState = SELECT_OPERATION;
-      else if (calcState == WAIT_OPERAND1) {
-        resetCalculator();
-        return;
-      }
     }
   }
   else if (key == '=') {
     float value = atof(inputBuffer);
     if (isNegative)
       value = -value;
-    if (calcState == WAIT_OPERAND1) {
-      operand1 = value;
-      calcState = SELECT_OPERATION;
+    
+    switch (currentOperandIndex) {
+      case 1: operand1 = value; break;
+      case 2: operand2 = value; break;
+      case 3: operand3 = value; break;
+      case 4: operand4 = value; break;
+      default: break;
     }
-    else if (calcState == WAIT_OPERAND2) {
-      operand2 = value;
+    
+    int req = getRequiredOperands(menuIndex);
+    if (currentOperandIndex < req) {
+      currentOperandIndex++;
+      switch (currentOperandIndex) {
+        case 2: calcState = WAIT_OPERAND2; break;
+        case 3: calcState = WAIT_OPERAND3; break;
+        case 4: calcState = WAIT_OPERAND4; break;
+      }
+    } else {
       result = calculate();
       calcState = SHOW_RESULT;
     }
@@ -377,7 +399,6 @@ void processOperandKey(char key) {
   updateDisplay();
 }
 
-// Processa as teclas para selecionar operações
 void processOperationKey(char key) {
   if (key == 'L')
     menuIndex = (menuIndex - 1 + NUM_OPERATIONS) % NUM_OPERATIONS;
@@ -386,23 +407,48 @@ void processOperationKey(char key) {
   else if (key == 'E')
     calcState = WAIT_OPERAND1;
   else if (key == '=') {
-    if (binaryOpsMask & (1UL << menuIndex))
-      calcState = WAIT_OPERAND2;
-    else {
+    int req = getRequiredOperands(menuIndex);
+    if (req == 1) {
       result = calculate();
       calcState = SHOW_RESULT;
+    } else {
+      currentOperandIndex = 1;
+      calcState = WAIT_OPERAND1;
     }
   }
   updateDisplay();
 }
 
-// Atualiza a tela do LCD de acordo com o estado atual
 void updateDisplay() {
   lcdClear();
   switch (calcState) {
     case WAIT_OPERAND1:
       lcdSetCursor(0, 0);
-      lcdPrintF(F("SciCalc - Num A"));  // Título modificado
+      lcdPrintF(F("SciCalc - Num A"));
+      lcdSetCursor(0, 1);
+      if (isNegative)
+        lcdWriteData('-');
+      lcdPrint(inputBuffer);
+      break;
+    case WAIT_OPERAND2:
+      lcdSetCursor(0, 0);
+      lcdPrintF(F("SciCalc - Num B"));
+      lcdSetCursor(0, 1);
+      if (isNegative)
+        lcdWriteData('-');
+      lcdPrint(inputBuffer);
+      break;
+    case WAIT_OPERAND3:
+      lcdSetCursor(0, 0);
+      lcdPrintF(F("SciCalc - Num C"));
+      lcdSetCursor(0, 1);
+      if (isNegative)
+        lcdWriteData('-');
+      lcdPrint(inputBuffer);
+      break;
+    case WAIT_OPERAND4:
+      lcdSetCursor(0, 0);
+      lcdPrintF(F("SciCalc - Num D"));
       lcdSetCursor(0, 1);
       if (isNegative)
         lcdWriteData('-');
@@ -410,17 +456,9 @@ void updateDisplay() {
       break;
     case SELECT_OPERATION:
       lcdSetCursor(0, 0);
-      lcdPrintF(F("SciCalc - Select"));  // Título modificado
+      lcdPrintF(F("SciCalc - Select"));
       lcdSetCursor(0, 1);
       lcdPrintOperation(menuIndex);
-      break;
-    case WAIT_OPERAND2:
-      lcdSetCursor(0, 0);
-      lcdPrintF(F("SciCalc - Num B"));  // Título modificado
-      lcdSetCursor(0, 1);
-      if (isNegative)
-        lcdWriteData('-');
-      lcdPrint(inputBuffer);
       break;
     case SHOW_RESULT:
       lcdSetCursor(0, 0);
@@ -437,25 +475,22 @@ void updateDisplay() {
   }
 }
 
-// Reseta a calculadora para o estado inicial
 void resetCalculator() {
-  calcState = WAIT_OPERAND1;
+  calcState = SELECT_OPERATION;
   inputBuffer[0] = '\0';
   inputLength = 0;
   hasDecimalPoint = false;
   isNegative = false;
-  operand1 = operand2 = result = 0.0;
+  operand1 = operand2 = operand3 = operand4 = result = 0.0;
+  currentOperandIndex = 1;
   menuIndex = 0;
   updateDisplay();
 }
-
-// --- Arduino Setup and Loop ---
 
 void setup() {
   lcdInit();
   keypadInit();
   lcdClear();
-  // Tela inicial removida – inicia direto no estado de entrada do primeiro operando
   resetCalculator();
 }
 
@@ -470,6 +505,8 @@ void loop() {
       break;
     case WAIT_OPERAND1:
     case WAIT_OPERAND2:
+    case WAIT_OPERAND3:
+    case WAIT_OPERAND4:
       processOperandKey(key);
       break;
     case SELECT_OPERATION:
