@@ -21,8 +21,7 @@
 #define LCD_D7_MASK (1<<PC5)
 #define LCD_E_MASK  (1<<PD2)
 
-// Operation string stored in flash (nova operação "lin" e "quad" adicionadas)
-const char opStr[] PROGMEM = "+,-,*,/,sqrt,sin,cos,tan,log,pow,fact,exp,log10,log2,asin,acos,atan,sinh,cosh,tanh,cbrt,%,lin,quad";
+const char opStr[] PROGMEM = "+,-,*,/,sqrt,sin,cos,tan,log,pow,fact,exp,log10,log2,cbrt,%,lin,quad";
 
 // --- LCD Functions ---
 static inline void lcdSendNibble(uint8_t nibble) {
@@ -177,16 +176,18 @@ bool isNegative = false;
 float operand1 = 0.0, operand2 = 0.0, operand3 = 0.0, operand4 = 0.0;
 float result = 0.0;
 uint8_t menuIndex = 0;
-const uint8_t NUM_OPERATIONS = 24;
+// Foram definidas 18 operações após a remoção das funções indesejadas
+const uint8_t NUM_OPERATIONS = 18;
 uint8_t currentOperandIndex = 1;
 
 int getRequiredOperands(uint8_t opIndex) {
   switch(opIndex) {
-    case 22: return 3; // "lin": ax+b=c
-    case 23: return 4; // "quad": ax^2+bx+c=d
+    case 16: return 3; // "lin": ax+b=c
+    case 17: return 4; // "quad": ax^2+bx+c=d
     default:
+      // Operações que exigem 2 operandos: +, -, *, /, pow e %  
       if(opIndex == 0 || opIndex == 1 || opIndex == 2 || opIndex == 3 ||
-         opIndex == 9 || opIndex == 21)
+         opIndex == 9 || opIndex == 15)
         return 2;
       else
         return 1;
@@ -257,27 +258,9 @@ float calculate() {
       res = log(operand1) / log(2);
       break;
     case 14:
-      res = asin(operand1);
-      break;
-    case 15:
-      res = acos(operand1);
-      break;
-    case 16:
-      res = atan(operand1);
-      break;
-    case 17:
-      res = sinh(operand1);
-      break;
-    case 18:
-      res = cosh(operand1);
-      break;
-    case 19:
-      res = tanh(operand1);
-      break;
-    case 20:
       res = cbrt(operand1);
       break;
-    case 21:
+    case 15:
       if (operand2 != 0.0)
         res = fmod(operand1, operand2);
       else {
@@ -289,7 +272,7 @@ float calculate() {
         return 0.0;
       }
       break;
-    case 22: // Linear: ax+b=c
+    case 16: // Linear: ax+b=c
       if (operand1 != 0.0)
         res = (operand3 - operand2) / operand1;
       else {
@@ -301,7 +284,7 @@ float calculate() {
         return 0.0;
       }
       break;
-    case 23: { // Quadrática: ax^2+bx+c=d
+    case 17: { // Quadrática: ax^2+bx+c=d
       if (operand1 != 0.0) {
         float disc = operand2 * operand2 - 4 * operand1 * (operand3 - operand4);
         if (disc < 0) {
