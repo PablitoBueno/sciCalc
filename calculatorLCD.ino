@@ -2,8 +2,10 @@
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>
+#include <ctype.h>
 
-// LCD pin definitions
+#define SQRT_SYMBOL "S"
+
 #define LCD_RS_PIN  A1
 #define LCD_RW_PIN  A0
 #define LCD_E_PIN   2
@@ -12,7 +14,6 @@
 #define LCD_D6_PIN  A4
 #define LCD_D7_PIN  A5
 
-// LCD mask definitions
 #define LCD_RS_MASK (1<<PC1)
 #define LCD_RW_MASK (1<<PC0)
 #define LCD_D4_MASK (1<<PC2)
@@ -21,11 +22,8 @@
 #define LCD_D7_MASK (1<<PC5)
 #define LCD_E_MASK  (1<<PD2)
 
-const char opStr[] PROGMEM = "+,-,*,/,sqrt,sin,cos,tan,log,pow,fact,exp,log10,log2,cbrt,%,ax+b=c,ax^2+bx+c=d";
-
-// --- LCD Functions ---
 static inline void lcdSendNibble(uint8_t nibble) {
-  PORTC = (PORTC & ~((1 << PC2) | (1 << PC3) | (1 << PC4) | (1 << PC5)))
+  PORTC = (PORTC & ~((1 << PC2)|(1 << PC3)|(1 << PC4)|(1 << PC5)))
           | ((nibble & 0x0F) << 2);
   PORTD |= LCD_E_MASK;
   delayMicroseconds(1);
@@ -34,26 +32,27 @@ static inline void lcdSendNibble(uint8_t nibble) {
 }
 
 static inline void lcdCommand(uint8_t cmd) {
-  PORTC &= ~((1 << PC1) | (1 << PC0));
+  PORTC &= ~((1 << PC1)|(1 << PC0));
   lcdSendNibble(cmd >> 4);
   lcdSendNibble(cmd & 0x0F);
   delay(2);
 }
 
 static inline void lcdWriteData(uint8_t data) {
-  PORTC = (PORTC & ~((1 << PC1) | (1 << PC0))) | (1 << PC1);
+  PORTC = (PORTC & ~((1 << PC1)|(1 << PC0))) | (1 << PC1);
   lcdSendNibble(data >> 4);
   lcdSendNibble(data & 0x0F);
   delay(2);
 }
 
 void lcdInit() {
-  DDRC |= (1 << PC0) | (1 << PC1) | (1 << PC2) | (1 << PC3) | (1 << PC4) | (1 << PC5);
+  DDRC |= (1 << PC0)|(1 << PC1)|(1 << PC2)|(1 << PC3)|(1 << PC4)|(1 << PC5);
   DDRD |= (1 << PD2);
-  PORTC &= ~((1 << PC0) | (1 << PC1) | (1 << PC2) | (1 << PC3) | (1 << PC4) | (1 << PC5));
+  PORTC &= ~((1 << PC0)|(1 << PC1)|(1 << PC2)|(1 << PC3)|(1 << PC4)|(1 << PC5));
   PORTD &= ~LCD_E_MASK;
   delay(50);
-  PORTC &= ~(1 << PC1);
+  lcdCommand(0x01); 
+  delay(2);
   lcdSendNibble(0x03);
   delay(5);
   lcdSendNibble(0x03);
@@ -84,51 +83,8 @@ void lcdPrint(const char *str) {
     lcdWriteData(*str++);
 }
 
-void lcdPrintF(const __FlashStringHelper *str) {
-  PGM_P p = (PGM_P)str;
-  char c;
-  while ((c = pgm_read_byte(p++)))
-    lcdWriteData(c);
-}
-
-void lcdPrintOperation(uint8_t index) {
-  uint8_t currentIndex = 0;
-  uint16_t i = 0;
-  char c;
-  while (true) {
-    c = pgm_read_byte_near(opStr + i);
-    if (c == '\0') break;
-    if (currentIndex == index) {
-      while (c != ',' && c != '\0') {
-        lcdWriteData(c);
-        i++;
-        c = pgm_read_byte_near(opStr + i);
-      }
-      break;
-    } else {
-      while (c != ',' && c != '\0') {
-        i++;
-        c = pgm_read_byte_near(opStr + i);
-      }
-      if (c == ',') {
-        currentIndex++;
-        i++;
-      } else {
-        break;
-      }
-    }
-  }
-}
-
-// --- Keypad Functions ---
 const byte rowPins[4] = {7, 8, 9, 10};
 const byte colPins[4] = {3, 4, 5, 6};
-const char keymap[4][4] = {
-  {'1', '2', '3', '4'},
-  {'5', '6', '7', '8'},
-  {'9', '0', 'E', '='},
-  {'-', '.', 'L', 'R'}
-};
 
 void keypadInit() {
   for (int i = 0; i < 4; i++) {
@@ -140,7 +96,7 @@ void keypadInit() {
   }
 }
 
-char getKey() {
+int getKeyIndex() {
   for (int r = 0; r < 4; r++) {
     digitalWrite(rowPins[r], LOW);
     uint8_t portD = PIND;
@@ -149,353 +105,469 @@ char getKey() {
         delay(50);
         while (!(PIND & (1 << colPins[c])));
         digitalWrite(rowPins[r], HIGH);
-        return keymap[r][c];
+        return r * 4 + c; 
       }
     }
     digitalWrite(rowPins[r], HIGH);
   }
-  return 0;
+  return -1;
 }
 
-// --- Calculator Variables and Functions ---
-enum CalcState {
-  WAIT_OPERAND1,
-  WAIT_OPERAND2,
-  WAIT_OPERAND3,
-  WAIT_OPERAND4,
-  SELECT_OPERATION,
-  SHOW_RESULT
-};
-CalcState calcState = WAIT_OPERAND1;
+float my_strtof(const char *str, char **endptr) {
+  float result = 0.0;
+  bool negative = false;
+  const char *ptr = str;
+  while (isspace(*ptr)) ptr++;
+  if(*ptr == '-') { negative = true; ptr++; }
+  else if(*ptr == '+') { ptr++; }
+  while(isdigit(*ptr)) {
+    result = result * 10 + (*ptr - '0');
+    ptr++;
+  }
+  if(*ptr == '.') {
+    ptr++;
+    float fraction = 0.0, divisor = 10.0;
+    while(isdigit(*ptr)) {
+      fraction += (*ptr - '0') / divisor;
+      divisor *= 10.0;
+      ptr++;
+    }
+    result += fraction;
+  }
+  if(endptr)
+    *endptr = (char*)ptr;
+  return negative ? -result : result;
+}
 
-char inputBuffer[17] = "";
-uint8_t inputLength = 0;
-bool hasDecimalPoint = false;
-bool isNegative = false;
+const char *expr_ptr;
+void skipWhitespace() {
+  while (*expr_ptr == ' ') expr_ptr++;
+}
 
-float operand1 = 0.0, operand2 = 0.0, operand3 = 0.0, operand4 = 0.0;
-float result = 0.0;
-uint8_t menuIndex = 0;
-// Foram definidas 18 operações após a remoção das funções indesejadas
-const uint8_t NUM_OPERATIONS = 18;
-uint8_t currentOperandIndex = 1;
+// Analisa a entrada primária (operações básicas)
+float parsePrimary() {
+  skipWhitespace();
+  if (*expr_ptr == '(') {
+    expr_ptr++;
+    float result = parseExpression();
+    if (*expr_ptr == ')') expr_ptr++;
+    return result;
+  }
+  if (strncmp(expr_ptr, SQRT_SYMBOL, strlen(SQRT_SYMBOL)) == 0) {
+    expr_ptr += strlen(SQRT_SYMBOL); 
+    float value = parsePrimary(); 
+    return sqrt(value);
+  }
+  char *end;
+  float result = my_strtof(expr_ptr, &end);
+  expr_ptr = end;
+  return result;
+}
 
-int getRequiredOperands(uint8_t opIndex) {
-  switch(opIndex) {
-    case 16: return 3; // "lin": ax+b=c
-    case 17: return 4; // "quad": ax^2+bx+c=d
-    default:
-      // Operações que exigem 2 operandos: +, -, *, /, pow e %  
-      if(opIndex == 0 || opIndex == 1 || opIndex == 2 || opIndex == 3 ||
-         opIndex == 9 || opIndex == 15)
-        return 2;
-      else
-        return 1;
+// Analisa fatores matemáticos (potências e raízes)
+float parseFactor() {
+  float base = parsePrimary();
+  skipWhitespace();
+  if (*expr_ptr == '^') {
+    expr_ptr++;
+    float exponent = parseFactor();
+    return pow(base, exponent);
+  }
+  return base;
+}
+
+// Analisa termos (multiplicação e divisão)
+float parseTerm() {
+  float result = parseFactor();
+  skipWhitespace();
+  while (*expr_ptr == '*' || *expr_ptr == '/') {
+    char op = *expr_ptr;
+    expr_ptr++;
+    float factor = parseFactor();
+    result = (op == '*') ? result * factor : result / factor;
+    skipWhitespace();
+  }
+  return result;
+}
+
+// Analisa expressões (soma e subtração)
+float parseExpression() {
+  float result = parseTerm();
+  skipWhitespace();
+  while (*expr_ptr == '+' || *expr_ptr == '-') {
+    char op = *expr_ptr;
+    expr_ptr++;
+    float term = parseTerm();
+    result = (op == '+') ? result + term : result - term;
+    skipWhitespace();
+  }
+  return result;
+}
+
+float evaluateExpression(const char *expr) {
+  expr_ptr = expr;
+  return parseExpression();
+}
+
+void parseSide(const char *side, float *ax, float *by, float *cz, float *cons) {
+  *ax = *by = *cz = *cons = 0;
+  int sign = 1;
+  const char *p = side;
+  while (*p) {
+    if (*p == ' ') { p++; continue; }
+    if (*p == '+') { sign = 1; p++; continue; }
+    if (*p == '-') { sign = -1; p++; continue; }
+    char *end;
+    float num = my_strtof(p, &end);
+    bool numberPresent = (end != p);
+    if (numberPresent) { p = end; } else { num = 1; }
+    if (*p == 'x' || *p == 'X') { *ax += sign * num; p++; }
+    else if (*p == 'y' || *p == 'Y') { *by += sign * num; p++; }
+    else if (*p == 'z' || *p == 'Z') { *cz += sign * num; p++; }
+    else { *cons += sign * num; }
   }
 }
 
-float factorial(float n) {
-  if (n <= 1.0)
-    return 1.0;
-  float f = 1.0;
-  for (int i = 2; i <= (int)n; i++)
-    f *= i;
-  return f;
+void parseEquationLinear(const char *eq, float coeff[4]) {
+  char buffer[33];
+  strncpy(buffer, eq, 32);
+  buffer[32] = '\0';
+  char *equalSign = strchr(buffer, '=');
+  if (equalSign == NULL) { coeff[0]=coeff[1]=coeff[2]=coeff[3]=0; return; }
+  *equalSign = '\0';
+  char *lhs = buffer;
+  char *rhs = equalSign + 1;
+  float ax_lhs, by_lhs, cz_lhs, cons_lhs;
+  float ax_rhs, by_rhs, cz_rhs, cons_rhs;
+  parseSide(lhs, &ax_lhs, &by_lhs, &cz_lhs, &cons_lhs);
+  parseSide(rhs, &ax_rhs, &by_rhs, &cz_rhs, &cons_rhs);
+  coeff[0] = ax_lhs - ax_rhs;
+  coeff[1] = by_lhs - by_rhs;
+  coeff[2] = cz_lhs - cz_rhs;
+  coeff[3] = cons_rhs - cons_lhs;
 }
 
-float calculate() {
-  float res = 0.0;
-  switch (menuIndex) {
-    case 0:
-      res = operand1 + operand2;
-      break;
-    case 1:
-      res = operand1 - operand2;
-      break;
-    case 2:
-      res = operand1 * operand2;
-      break;
-    case 3:
-      if (operand2 != 0.0)
-        res = operand1 / operand2;
-      else {
-        lcdClear();
-        lcdSetCursor(0, 0);
-        lcdPrintF(F("Error: Div 0"));
-        delay(2000);
-        resetCalculator();
-        return 0.0;
+float solveLinearEquation(const char *eq, bool *valid) {
+  char eqCopy[33];
+  strncpy(eqCopy, eq, 32);
+  eqCopy[32] = '\0';
+  char *equalSign = strchr(eqCopy, '=');
+  if (equalSign == NULL) { *valid = false; return 0.0; }
+  *equalSign = '\0';
+  char *lhs = eqCopy;
+  char *rhs = equalSign + 1;
+  float ax_lhs, dummy1, dummy2, cons_lhs;
+  float ax_rhs, dummy3, dummy4, cons_rhs;
+  parseSide(lhs, &ax_lhs, &dummy1, &dummy2, &cons_lhs);
+  parseSide(rhs, &ax_rhs, &dummy3, &dummy4, &cons_rhs);
+  float A = ax_lhs - ax_rhs;
+  float B = cons_lhs - cons_rhs;
+  if (fabs(A) < 1e-6) { *valid = false; return 0.0; }
+  *valid = true;
+  return -B / A;
+}
+
+bool solveLinearSystem(float mat[3][4], int n, float sol[3]) {
+  for (int i = 0; i < n; i++) {
+    int pivot = i;
+    for (int j = i+1; j < n; j++) {
+      if (fabs(mat[j][i]) > fabs(mat[pivot][i]))
+        pivot = j;
+    }
+    if (fabs(mat[pivot][i]) < 1e-6)
+      return false;
+    if (pivot != i) {
+      for (int k = i; k <= n; k++) {
+        float temp = mat[i][k];
+        mat[i][k] = mat[pivot][k];
+        mat[pivot][k] = temp;
       }
-      break;
-    case 4:
-      res = sqrt(operand1);
-      break;
-    case 5:
-      res = sin(operand1);
-      break;
-    case 6:
-      res = cos(operand1);
-      break;
-    case 7:
-      res = tan(operand1);
-      break;
-    case 8:
-      res = log(operand1);
-      break;
-    case 9:
-      res = pow(operand1, operand2);
-      break;
-    case 10:
-      res = factorial(operand1);
-      break;
-    case 11:
-      res = exp(operand1);
-      break;
-    case 12:
-      res = log10(operand1);
-      break;
-    case 13:
-      res = log(operand1) / log(2);
-      break;
-    case 14:
-      res = cbrt(operand1);
-      break;
-    case 15:
-      if (operand2 != 0.0)
-        res = fmod(operand1, operand2);
-      else {
-        lcdClear();
-        lcdSetCursor(0, 0);
-        lcdPrintF(F("Error: Div 0"));
-        delay(2000);
-        resetCalculator();
-        return 0.0;
+    }
+    float div = mat[i][i];
+    for (int k = i; k <= n; k++) {
+      mat[i][k] /= div;
+    }
+    for (int j = i+1; j < n; j++) {
+      float factor = mat[j][i];
+      for (int k = i; k <= n; k++) {
+        mat[j][k] -= factor * mat[i][k];
       }
-      break;
-    case 16: // Linear: ax+b=c
-      if (operand1 != 0.0)
-        res = (operand3 - operand2) / operand1;
-      else {
-        lcdClear();
-        lcdSetCursor(0, 0);
-        lcdPrintF(F("Error: a=0"));
-        delay(2000);
-        resetCalculator();
-        return 0.0;
-      }
-      break;
-    case 17: { // Quadrática: ax^2+bx+c=d
-      if (operand1 != 0.0) {
-        float disc = operand2 * operand2 - 4 * operand1 * (operand3 - operand4);
-        if (disc < 0) {
-          lcdClear();
-          lcdSetCursor(0, 0);
-          lcdPrintF(F("No Real Roots"));
-          delay(2000);
-          resetCalculator();
-          return 0.0;
+    }
+  }
+  for (int i = n-1; i >= 0; i--) {
+    sol[i] = mat[i][n];
+    for (int j = i+1; j < n; j++) {
+      sol[i] -= mat[i][j] * sol[j];
+    }
+  }
+  return true;
+}
+
+bool solveEquationSystem(const char *eqStr, float sol[3], int *numEq) {
+  char buffer[65];
+  strncpy(buffer, eqStr, 64);
+  buffer[64] = '\0';
+  char *eqs[3];
+  int count = 0;
+  char *token = strtok(buffer, ";");
+  while(token != NULL && count < 3) {
+    eqs[count++] = token;
+    token = strtok(NULL, ";");
+  }
+  *numEq = count;
+  if (count < 1) return false;
+  float mat[3][4] = {0};
+  for (int i = 0; i < count; i++) {
+    float coeff[4];
+    parseEquationLinear(eqs[i], coeff);
+    mat[i][0] = coeff[0];
+    mat[i][1] = coeff[1];
+    mat[i][2] = coeff[2];
+    mat[i][3] = coeff[3];
+  }
+  return solveLinearSystem(mat, count, sol);
+}
+
+void formatResultFloat(float res, char *resultStr, int size) {
+  char buffer[17];
+  dtostrf(res, 0, 2, buffer);
+  char *dot = strchr(buffer, '.');
+  if(dot != NULL && strcmp(dot, ".00") == 0) {
+    *dot = '\0';
+  }
+  strncpy(resultStr, buffer, size);
+  resultStr[size-1] = '\0';
+}
+
+#define MULTITAP_TIMEOUT 2500
+#define BLINK_INTERVAL 500  
+
+char eqInputBuffer[17] = "";
+uint8_t eqInputLength = 0;
+uint8_t cursorPosition = 0;
+
+int currentKey_input = -1;
+int currentTokenIndex_input = 0;
+unsigned long lastKeyPressTime_input = 0;
+bool multiTapActive_input = false;
+
+unsigned long lastBlinkTime_input = 0;
+bool blinkState_input = false;
+
+const char* key0Options_input[] = {"1"};
+const char* key1Options_input[] = {"2"};
+const char* key2Options_input[] = {"3"};
+const char* key3Options_input[] = {"4"};
+const char* key4Options_input[] = {"5"};
+const char* key5Options_input[] = {"6"};
+const char* key6Options_input[] = {"7"};
+const char* key7Options_input[] = {"8"};
+const char* key8Options_input[] = {"9"};
+const char* key9Options_input[] = {"0"};
+const char* key10Options_input[] = {"BK"};
+const char* key11Options_input[] = {"ENT"};
+const char* key12Options_input[] = {"x", "y", "z"};
+const char* key13Options_input[] = {"+", "-", "*", "/", "(", ")", ".", "=", "S", "^"};
+const char* key14Options_input[] = {"LFT"};
+const char* key15Options_input[] = {"RGT"};
+
+struct KeyMapping_input {
+  const char **options;
+  uint8_t numOptions;
+};
+
+KeyMapping_input eqKeyMap_input[16] = {
+  { key0Options_input, 1 },
+  { key1Options_input, 1 },
+  { key2Options_input, 1 },
+  { key3Options_input, 1 },
+  { key4Options_input, 1 },
+  { key5Options_input, 1 },
+  { key6Options_input, 1 },
+  { key7Options_input, 1 },
+  { key8Options_input, 1 },
+  { key9Options_input, 1 },
+  { key10Options_input, 1 },  
+  { key11Options_input, 1 },  
+  { key12Options_input, 3 },  
+  { key13Options_input, 10 }, 
+  { key14Options_input, 1 },  
+  { key15Options_input, 1 }   
+};
+
+bool isMultiTapKey(int keyIndex) {
+  return (keyIndex == 12 || keyIndex == 13);
+}
+
+void insertTokenAtCursor_input(const char *token) {
+  uint8_t tokenLen = strlen(token);
+  if (eqInputLength + tokenLen <= 16) {
+    for (int i = eqInputLength; i >= cursorPosition; i--) {
+      eqInputBuffer[i + tokenLen] = eqInputBuffer[i];
+    }
+    for (int i = 0; i < tokenLen; i++) {
+      eqInputBuffer[cursorPosition + i] = token[i];
+    }
+    eqInputLength += tokenLen;
+    cursorPosition += tokenLen;
+  }
+}
+
+void removeTokenAtCursor_input() {
+  if (cursorPosition > 0) {
+    for (int i = cursorPosition - 1; i < eqInputLength; i++) {
+      eqInputBuffer[i] = eqInputBuffer[i + 1];
+    }
+    eqInputLength--;
+    cursorPosition--;
+  }
+}
+
+void moveCursorLeft_input() {
+  if (cursorPosition > 0) cursorPosition--;
+}
+
+void moveCursorRight_input() {
+  if (cursorPosition < eqInputLength) cursorPosition++;
+}
+
+void updateEquationDisplay_input() {
+  if (millis() - lastBlinkTime_input >= BLINK_INTERVAL) {
+    blinkState_input = !blinkState_input;
+    lastBlinkTime_input = millis();
+  }
+  
+  char displayBuffer[17];
+  memset(displayBuffer, ' ', 16);
+  displayBuffer[16] = '\0';
+  memcpy(displayBuffer, eqInputBuffer, eqInputLength);
+  
+  if (multiTapActive_input) {
+    const char *token = eqKeyMap_input[currentKey_input].options[currentTokenIndex_input];
+    uint8_t tokenLen = strlen(token);
+    if (cursorPosition + tokenLen <= 16) {
+      memcpy(displayBuffer + cursorPosition, token, tokenLen);
+    }
+  } else {
+    char original = (cursorPosition < eqInputLength) ? eqInputBuffer[cursorPosition] : ' ';
+    displayBuffer[cursorPosition] = blinkState_input ? '_' : original;
+  }
+  
+  lcdSetCursor(0, 1);
+  lcdPrint(displayBuffer);
+}
+
+void processKeyPress_input(int keyIndex) {
+  unsigned long now = millis();
+  if (keyIndex == 10 || keyIndex == 11 || keyIndex == 14 || keyIndex == 15) {
+    if (multiTapActive_input) {
+      insertTokenAtCursor_input(eqKeyMap_input[currentKey_input].options[currentTokenIndex_input]);
+      multiTapActive_input = false;
+    }
+    if (keyIndex == 10) { 
+      removeTokenAtCursor_input();
+    } else if (keyIndex == 11) { 
+      if (strchr(eqInputBuffer, ';') != NULL) {
+        float sol[3] = {0,0,0};
+        int numEq = 0;
+        bool ok = solveEquationSystem(eqInputBuffer, sol, &numEq);
+        char resultStr[17];
+        if (ok) {
+          if (numEq == 1) {
+            formatResultFloat(sol[0], resultStr, 17);
+          } else {
+            char temp1[9], temp2[9];
+            formatResultFloat(sol[0], temp1, 9);
+            formatResultFloat(sol[1], temp2, 9);
+            snprintf(resultStr, 17, "x=%s y=%s", temp1, temp2);
+          }
+          strcpy(eqInputBuffer, resultStr);
+          eqInputLength = strlen(resultStr);
+          cursorPosition = eqInputLength;
         } else {
-          res = (-operand2 + sqrt(disc)) / (2 * operand1);
+          strcpy(eqInputBuffer, "Err");
+          eqInputLength = 3;
+          cursorPosition = eqInputLength;
+        }
+      } else if (strchr(eqInputBuffer, 'x') || strchr(eqInputBuffer, 'X') ||
+                 strchr(eqInputBuffer, 'y') || strchr(eqInputBuffer, 'Y') ||
+                 strchr(eqInputBuffer, 'z') || strchr(eqInputBuffer, 'Z')) {
+        bool valid;
+        float res = solveLinearEquation(eqInputBuffer, &valid);
+        char resultStr[17];
+        if (valid) {
+          formatResultFloat(res, resultStr, 17);
+          strcpy(eqInputBuffer, resultStr);
+          eqInputLength = strlen(resultStr);
+          cursorPosition = eqInputLength;
+        } else {
+          strcpy(eqInputBuffer, "Err");
+          eqInputLength = 3;
+          cursorPosition = eqInputLength;
         }
       } else {
-        lcdClear();
-        lcdSetCursor(0, 0);
-        lcdPrintF(F("Error: a=0"));
-        delay(2000);
-        resetCalculator();
-        return 0.0;
+        float res = evaluateExpression(eqInputBuffer);
+        char resultStr[17];
+        formatResultFloat(res, resultStr, 17);
+        strcpy(eqInputBuffer, resultStr);
+        eqInputLength = strlen(resultStr);
+        cursorPosition = eqInputLength;
       }
+    } else if (keyIndex == 14) { 
+      moveCursorLeft_input();
+    } else if (keyIndex == 15) { 
+      moveCursorRight_input();
     }
-      break;
-    default:
-      break;
+    return;
   }
-  return res;
-}
-
-void addCharToInput(char c) {
-  if (inputLength < 16) {
-    inputBuffer[inputLength++] = c;
-    inputBuffer[inputLength] = '\0';
+  
+  if (!isMultiTapKey(keyIndex)) {
+    insertTokenAtCursor_input(eqKeyMap_input[keyIndex].options[0]);
+    lastKeyPressTime_input = now;
+    return;
   }
-}
-
-void removeCharFromInput() {
-  if (inputLength > 0) {
-    inputLength--;
-    inputBuffer[inputLength] = '\0';
-  }
-}
-
-void processOperandKey(char key) {
-  if (key >= '0' && key <= '9')
-    addCharToInput(key);
-  else if (key == '.') {
-    if (!hasDecimalPoint) {
-      addCharToInput('.');
-      hasDecimalPoint = true;
+  
+  if (multiTapActive_input && keyIndex == currentKey_input && (now - lastKeyPressTime_input < MULTITAP_TIMEOUT)) {
+    currentTokenIndex_input = (currentTokenIndex_input + 1) % eqKeyMap_input[keyIndex].numOptions;
+  } else {
+    if (multiTapActive_input) {
+      insertTokenAtCursor_input(eqKeyMap_input[currentKey_input].options[currentTokenIndex_input]);
     }
+    currentKey_input = keyIndex;
+    currentTokenIndex_input = 0;
+    multiTapActive_input = isMultiTapKey(keyIndex);
   }
-  else if (key == '-') {
-    isNegative = !isNegative;
-  }
-  else if (key == 'E') {
-    if (inputLength > 0) {
-      if (inputBuffer[inputLength - 1] == '.')
-        hasDecimalPoint = false;
-      removeCharFromInput();
-    } else {
-      if (calcState != SELECT_OPERATION)
-        calcState = SELECT_OPERATION;
-    }
-  }
-  else if (key == '=') {
-    float value = atof(inputBuffer);
-    if (isNegative)
-      value = -value;
-    
-    switch (currentOperandIndex) {
-      case 1: operand1 = value; break;
-      case 2: operand2 = value; break;
-      case 3: operand3 = value; break;
-      case 4: operand4 = value; break;
-      default: break;
-    }
-    
-    int req = getRequiredOperands(menuIndex);
-    if (currentOperandIndex < req) {
-      currentOperandIndex++;
-      switch (currentOperandIndex) {
-        case 2: calcState = WAIT_OPERAND2; break;
-        case 3: calcState = WAIT_OPERAND3; break;
-        case 4: calcState = WAIT_OPERAND4; break;
-      }
-    } else {
-      result = calculate();
-      calcState = SHOW_RESULT;
-    }
-    inputBuffer[0] = '\0';
-    inputLength = 0;
-    hasDecimalPoint = false;
-    isNegative = false;
-  }
-  updateDisplay();
+  lastKeyPressTime_input = now;
 }
 
-void processOperationKey(char key) {
-  if (key == 'L')
-    menuIndex = (menuIndex - 1 + NUM_OPERATIONS) % NUM_OPERATIONS;
-  else if (key == 'R')
-    menuIndex = (menuIndex + 1) % NUM_OPERATIONS;
-  else if (key == 'E')
-    calcState = WAIT_OPERAND1;
-  else if (key == '=') {
-    int req = getRequiredOperands(menuIndex);
-    if (req == 1) {
-      result = calculate();
-      calcState = SHOW_RESULT;
-    } else {
-      currentOperandIndex = 1;
-      calcState = WAIT_OPERAND1;
-    }
-  }
-  updateDisplay();
-}
-
-void updateDisplay() {
-  lcdClear();
-  switch (calcState) {
-    case WAIT_OPERAND1:
-      lcdSetCursor(0, 0);
-      lcdPrintF(F("SciCalc - Num A"));
-      lcdSetCursor(0, 1);
-      if (isNegative)
-        lcdWriteData('-');
-      lcdPrint(inputBuffer);
-      break;
-    case WAIT_OPERAND2:
-      lcdSetCursor(0, 0);
-      lcdPrintF(F("SciCalc - Num B"));
-      lcdSetCursor(0, 1);
-      if (isNegative)
-        lcdWriteData('-');
-      lcdPrint(inputBuffer);
-      break;
-    case WAIT_OPERAND3:
-      lcdSetCursor(0, 0);
-      lcdPrintF(F("SciCalc - Num C"));
-      lcdSetCursor(0, 1);
-      if (isNegative)
-        lcdWriteData('-');
-      lcdPrint(inputBuffer);
-      break;
-    case WAIT_OPERAND4:
-      lcdSetCursor(0, 0);
-      lcdPrintF(F("SciCalc - Num D"));
-      lcdSetCursor(0, 1);
-      if (isNegative)
-        lcdWriteData('-');
-      lcdPrint(inputBuffer);
-      break;
-    case SELECT_OPERATION:
-      lcdSetCursor(0, 0);
-      lcdPrintF(F("SciCalc - Select"));
-      lcdSetCursor(0, 1);
-      lcdPrintOperation(menuIndex);
-      break;
-    case SHOW_RESULT:
-      lcdSetCursor(0, 0);
-      lcdPrintF(F("Result:"));
-      lcdSetCursor(0, 1);
-      {
-        char resBuf[16];
-        dtostrf(result, 0, 2, resBuf);
-        lcdPrint(resBuf);
-      }
-      break;
-    default:
-      break;
+void checkMultiTapTimeout_input() {
+  if (multiTapActive_input && isMultiTapKey(currentKey_input) && (millis() - lastKeyPressTime_input >= MULTITAP_TIMEOUT)) {
+    insertTokenAtCursor_input(eqKeyMap_input[currentKey_input].options[currentTokenIndex_input]);
+    multiTapActive_input = false;
   }
 }
 
-void resetCalculator() {
-  calcState = SELECT_OPERATION;
-  inputBuffer[0] = '\0';
-  inputLength = 0;
-  hasDecimalPoint = false;
-  isNegative = false;
-  operand1 = operand2 = operand3 = operand4 = result = 0.0;
-  currentOperandIndex = 1;
-  menuIndex = 0;
-  updateDisplay();
-}
-
+// Configuração inicial
 void setup() {
   lcdInit();
   keypadInit();
   lcdClear();
-  resetCalculator();
+  lcdSetCursor(0, 0);
+  lcdPrint("SciCalc-Equation");
+  
+  eqInputBuffer[0] = '\0';
+  eqInputLength = 0;
+  cursorPosition = 0;
+  lastBlinkTime_input = millis();
+  blinkState_input = false;
 }
 
+// Loop principal
 void loop() {
-  char key = getKey();
-  if (!key)
-    return;
-  switch (calcState) {
-    case SHOW_RESULT:
-      if (key == '=')
-        resetCalculator();
-      break;
-    case WAIT_OPERAND1:
-    case WAIT_OPERAND2:
-    case WAIT_OPERAND3:
-    case WAIT_OPERAND4:
-      processOperandKey(key);
-      break;
-    case SELECT_OPERATION:
-      processOperationKey(key);
-      break;
-    default:
-      break;
+  int keyIndex = getKeyIndex();
+  if (keyIndex != -1) {
+    processKeyPress_input(keyIndex);
   }
+  checkMultiTapTimeout_input();
+  updateEquationDisplay_input();
 }
