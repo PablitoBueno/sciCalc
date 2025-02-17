@@ -5,7 +5,7 @@ This project allows an Arduino to evaluate general mathematical expressions and 
 ## Features
 
 - **General Expression Evaluation:**  
-  Evaluate arithmetic expressions like `5+3*2` or compute square roots (using `S16` for âˆš16).
+  Evaluate arithmetic expressions like `5+3*2` or compute square roots (using `S16` for √16).
 
 - **Equation Solving:**  
   Detects and solves equations with an incognito variable, such as `x+2=5` or polynomial equations like `2x^2+3x-5=0`.
