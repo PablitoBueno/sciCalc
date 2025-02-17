@@ -22,6 +22,7 @@ This project allows an Arduino to evaluate general mathematical expressions and 
 - Arduino Board (Uno, Mega, etc.)
 - 16x2 LCD Display
 - 4x4 Matrix Keypad
+- Jumper Wires
 
 ### LCD Connections
 
