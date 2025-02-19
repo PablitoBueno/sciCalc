@@ -9,6 +9,7 @@ void formatResultFloat(float res, char *resultStr, int size);
 
 // Constantes e definições básicas
 #define SQRT_SYMBOL "S"                   // Símbolo para raiz quadrada
+#define PI_SYMBOL "π"                     // Símbolo para pi
 #define ERROR_MSG "ERROR"                 // Mensagem de erro exibida
 #define ERROR_MSG_LEN 5
 #define NOSOL_MSG "Ø"                     // Sem solução
@@ -135,7 +136,8 @@ float my_strtof(const char *str, char **endptr) {
   return negative ? -result : result; 
 }
 static inline bool validateInput(const char* input) { 
-  const char* allowed = "0123456789 +-*/^.()SxyzXYZ="; 
+  // Acrescentado o caractere π na lista de permitidos
+  const char* allowed = "0123456789 +-*/^.()SπxyzXYZ="; 
   for (const char *p = input; *p; p++) { 
     if (!isspace(*p) && !strchr(allowed, *p)) 
       return false; 
@@ -158,6 +160,11 @@ float parsePrimary() {
     if (*expr_ptr == ')') 
       expr_ptr++; 
     return result; 
+  }
+  // Verifica se a expressão começa com π, usando a constante PI_SYMBOL
+  if (strncmp(expr_ptr, PI_SYMBOL, strlen(PI_SYMBOL)) == 0) {
+    expr_ptr += strlen(PI_SYMBOL);
+    return 3.14159265; // Valor aproximado de π
   }
   if (strncmp(expr_ptr, SQRT_SYMBOL, strlen(SQRT_SYMBOL)) == 0) { 
     expr_ptr += strlen(SQRT_SYMBOL); 
@@ -499,7 +506,8 @@ const char* key8Options_input[] = {"9"};
 const char* key9Options_input[] = {"0"};
 const char* key10Options_input[] = {"BK"};
 const char* key11Options_input[] = {"ENT"};
-const char* key12Options_input[] = {"x", "y", "z"};
+// Adicionado o símbolo π junto com as variáveis x, y e z
+const char* key12Options_input[] = {"x", "y", "z", "π"};
 const char* key13Options_input[] = {"+", "-", "*", "/", "(", ")", ".", "=", "S", "^"};
 const char* key14Options_input[] = {"LFT"};
 const char* key15Options_input[] = {"RGT"};
@@ -508,7 +516,8 @@ KeyMapping_input eqKeyMap_input[16] = {
   { key0Options_input, 1 }, { key1Options_input, 1 }, { key2Options_input, 1 }, { key3Options_input, 1 },
   { key4Options_input, 1 }, { key5Options_input, 1 }, { key6Options_input, 1 }, { key7Options_input, 1 },
   { key8Options_input, 1 }, { key9Options_input, 1 }, { key10Options_input, 1 }, { key11Options_input, 1 },
-  { key12Options_input, 3 }, { key13Options_input, 10 }, { key14Options_input, 1 }, { key15Options_input, 1 }
+  { key12Options_input, 4 },  // Atualizado para 4 opções: x, y, z e π
+  { key13Options_input, 10 }, { key14Options_input, 1 }, { key15Options_input, 1 }
 };
 static inline bool isMultiTapKey(int keyIndex) { 
   return (keyIndex == 12 || keyIndex == 13); 
