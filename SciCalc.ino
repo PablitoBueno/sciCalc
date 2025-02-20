@@ -12,7 +12,6 @@ int solvePolynomialEquation(const char *eq, float roots[], char var);
 
 //----------------------- Constantes e Definições -----------------------
 #define SQRT_SYMBOL "S"                   // Operador para raiz quadrada
-#define PI_SYMBOL "π"                     // (Mantido, se desejar usar em expressões gerais)
 #define ERROR_MSG "ERROR"                 // Mensagem de erro
 #define NOSOL_MSG "No Solution"           // Sem solução
 #define INF_SOL_MSG "Inf. Solutions"      // Soluções infinitas
@@ -147,7 +146,7 @@ float my_strtof(const char *str, char **endptr) {
 }
 static inline bool validateInput(const char* input) { 
   // Caracteres permitidos (mantendo π para expressões gerais)
-  const char* allowed = "0123456789 +-*/^.()SπxyzXYZ="; 
+  const char* allowed = "0123456789 +-*/^.()Sxyz="; 
   for (const char *p = input; *p; p++) { 
     if (!isspace(*p) && !strchr(allowed, *p)) 
       return false;
@@ -169,11 +168,6 @@ float parsePrimary() {
     if (*expr_ptr == ')') 
       expr_ptr++; 
     return result; 
-  }
-  // Se a expressão começa com π, retorna valor aproximado
-  if (strncmp(expr_ptr, PI_SYMBOL, strlen(PI_SYMBOL)) == 0) {
-    expr_ptr += strlen(PI_SYMBOL);
-    return 3.14159265;
   }
   // Suporte para raiz: se encontrar "S", calcula sqrt da próxima primária
   if (strncmp(expr_ptr, SQRT_SYMBOL, strlen(SQRT_SYMBOL)) == 0) { 
@@ -455,7 +449,7 @@ unsigned long lastBlinkTime_input = 0;
 bool blinkState_input = false;
 
 // Configuração das teclas – as teclas 12 e 13 são multitap.
-// Nesta versão, a tecla 12 possui as variáveis: x, y, z, π
+// Nesta versão, a tecla 12 possui as variáveis: x, y, z
 const char* key0Options_input[] = {"1"};
 const char* key1Options_input[] = {"2"};
 const char* key2Options_input[] = {"3"};
@@ -466,18 +460,18 @@ const char* key6Options_input[] = {"7"};
 const char* key7Options_input[] = {"8"};
 const char* key8Options_input[] = {"9"};
 const char* key9Options_input[] = {"0"};
-const char* key10Options_input[] = {"BK"};
-const char* key11Options_input[] = {"ENT"};
-const char* key12Options_input[] = {"x", "y", "z", "π"};
+const char* key10Options_input[] = {};
+const char* key11Options_input[] = {};
+const char* key12Options_input[] = {"x", "y", "z"};
 const char* key13Options_input[] = {"+", "-", "*", "/", "(", ")", ".", "=", "S", "^"};
-const char* key14Options_input[] = {"LFT"};
-const char* key15Options_input[] = {"RGT"};
+const char* key14Options_input[] = {};
+const char* key15Options_input[] = {};
 struct KeyMapping_input { const char **options; uint8_t numOptions; };
 KeyMapping_input eqKeyMap_input[16] = {
   { key0Options_input, 1 }, { key1Options_input, 1 }, { key2Options_input, 1 }, { key3Options_input, 1 },
   { key4Options_input, 1 }, { key5Options_input, 1 }, { key6Options_input, 1 }, { key7Options_input, 1 },
   { key8Options_input, 1 }, { key9Options_input, 1 }, { key10Options_input, 1 }, { key11Options_input, 1 },
-  { key12Options_input, 4 },
+  { key12Options_input, 3 },
   { key13Options_input, 10 }, { key14Options_input, 1 }, { key15Options_input, 1 }
 };
 static inline bool isMultiTapKey(int keyIndex) { 
@@ -561,15 +555,13 @@ void processKeyPress_input(int keyIndex) {
     else if (keyIndex == 11) {
       char resultStr[17];
       // Se a entrada contém uma variável (x, y ou z), trata como equação polinomial
-      if (strchr(eqInputBuffer, 'x') || strchr(eqInputBuffer, 'X') ||
-          strchr(eqInputBuffer, 'y') || strchr(eqInputBuffer, 'Y') ||
-          strchr(eqInputBuffer, 'z') || strchr(eqInputBuffer, 'Z')) {
+      if ( strchr(eqInputBuffer, 'x') || strchr(eqInputBuffer, 'y') || strchr(eqInputBuffer, 'z')) {
         char var;
-        if (strchr(eqInputBuffer, 'x') || strchr(eqInputBuffer, 'X'))
+        if (strchr(eqInputBuffer, 'x') )
           var = 'x';
-        else if (strchr(eqInputBuffer, 'y') || strchr(eqInputBuffer, 'Y'))
+        else if (strchr(eqInputBuffer, 'y') )
           var = 'y';
-        else if (strchr(eqInputBuffer, 'z') || strchr(eqInputBuffer, 'Z'))
+        else if (strchr(eqInputBuffer, 'z') )
           var = 'z';
         else {
           displayMessage(ERROR_MSG);
