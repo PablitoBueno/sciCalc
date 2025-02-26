@@ -17,7 +17,7 @@ class SerialDataHandler:
 
     def connect(self):
         printed_wait_message = False
-        while not self.running:  # Prevents an infinite loop without an exit condition
+        while not self.running:
             try:
                 self.serial_connection = serial.Serial(self.port, self.baudrate, timeout=1)
                 self.running = True
@@ -36,16 +36,22 @@ class SerialDataHandler:
                 if self.serial_connection and self.serial_connection.in_waiting > 0:
                     line = self.serial_connection.readline().decode('utf-8', errors='ignore').strip()
                     if line:
-                        parts = line.split()
-                        if len(parts) >= 2:
-                            try:
-                                x = float(parts[0])
-                                y = float(parts[1])
-                                self.points.append((x, y))
-                                if self.data_callback:
-                                    self.data_callback((x, y))
-                            except ValueError:
-                                logging.error(f"Invalid format received: {line}")
+                        # If the received command is "toggle" (case-insensitive)
+                        if line.lower() == "toggle":
+                            logging.info("Received 'toggle' command.")
+                            if self.data_callback:
+                                self.data_callback("toggle")
+                        else:
+                            parts = line.split()
+                            if len(parts) >= 2:
+                                try:
+                                    x = float(parts[0])
+                                    y = float(parts[1])
+                                    self.points.append((x, y))
+                                    if self.data_callback:
+                                        self.data_callback((x, y))
+                                except ValueError:
+                                    logging.error(f"Invalid format received: {line}")
             except serial.SerialException:
                 logging.error("Serial communication error. Attempting to reconnect...")
                 self.reconnect()
@@ -63,7 +69,6 @@ class SerialDataHandler:
         self.data_callback = callback
 
     def get_points(self):
-        """Returns all stored (x, y) points."""
         return self.points
 
     def disconnect(self):
