@@ -9,6 +9,7 @@ void formatResultFloat(float res, char *resultStr, int size); // Format a float 
 void processSidePoly(const char *side, float polyArr[], char var); // Process one side of the equation to extract coefficients
 float evaluateExpression(const char *expr); // Evaluate an arithmetic expression and return its value
 int solvePolynomialEquation(const char *eq, float roots[], char var); // Solve a polynomial equation and return its roots
+void sendRootsToSerial(float root1, float root2); // Envia as duas raízes via Serial, se conectado ao PC
 
 // Constants and definitions
 #define SQRT_SYMBOL "S"             // Symbol used for square root
@@ -619,6 +620,8 @@ void processKeyPress_input(int keyIndex) {
           formatResultFloat(roots[1], temp2, 9);
           snprintf(resultStr, 17, "%c=%s %c=%s", var, temp1, var, temp2); // Prepare string with two roots
           displayMessage(resultStr);
+          // Envia o resultado via Serial se estiver conectado a um computador
+          sendRootsToSerial(roots[0], roots[1]);
         }
       }
       else {
@@ -663,22 +666,50 @@ void checkMultiTapTimeout_input() {
     multiTapActive_input = false;
   }
 }
+// Function to send the roots via Serial if the Arduino is connected to a PC
+void sendRootsToSerial(float root1, float root2) {
+  // Check if the serial port is available for transmission
+  if (UCSR0A & (1 << UDRE0)) {
+    char buffer1[10], buffer2[10];
+    formatResultFloat(root1, buffer1, sizeof(buffer1));
+    formatResultFloat(root2, buffer2, sizeof(buffer2));
 
-// Setup function: initializes LCD, keypad, and control variables
+    // Send the roots to the computer via Serial
+    for (char *p = buffer1; *p; p++) {
+      while (!(UCSR0A & (1 << UDRE0)));
+      UDR0 = *p;
+    }
+    while (!(UCSR0A & (1 << UDRE0)));
+    UDR0 = ' '; // Space separator
+    for (char *p = buffer2; *p; p++) {
+      while (!(UCSR0A & (1 << UDRE0)));
+      UDR0 = *p;
+    }
+    while (!(UCSR0A & (1 << UDRE0)));
+    UDR0 = '\n'; // New line to indicate end of transmission
+  }
+}
+
 void setup() {
   lcdInit();
   keypadInit();
   lcdClear();
   lcdSetCursor(0, 0);
-  lcdPrint("SciCalc-Equation"); // Initial message on the LCD
+  lcdPrint("SciCalc-Equation"); // Initial LCD message
+
+  // Set up Serial communication (if Arduino is connected to a PC)
+  UBRR0H = 0; // Baud rate 9600
+  UBRR0L = 103;
+  UCSR0B = (1 << TXEN0); // Enable transmission
+  UCSR0C = (1 << UCSZ01) | (1 << UCSZ00); // 8-bit format, no parity
+  
   eqInputBuffer[0] = '\0';
   eqInputLength = 0;
   cursorPosition = 0;
   lastBlinkTime_input = millis();
   blinkState_input = false;
-}
+} // <-- Added closing brace for setup()
 
-// Main loop: processes keypad input and updates the display
 void loop() {
   int keyIndex = getKeyIndex();
   if (keyIndex != -1)
