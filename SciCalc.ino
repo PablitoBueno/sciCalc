@@ -666,50 +666,53 @@ void checkMultiTapTimeout_input() {
     multiTapActive_input = false;
   }
 }
-// Function to send the roots via Serial if the Arduino is connected to a PC
+
+// Função para enviar as raízes via Serial, caso o Arduino esteja conectado ao PC
 void sendRootsToSerial(float root1, float root2) {
-  // Check if the serial port is available for transmission
+  // Verifica se a porta serial está disponível para transmissão
   if (UCSR0A & (1 << UDRE0)) {
     char buffer1[10], buffer2[10];
     formatResultFloat(root1, buffer1, sizeof(buffer1));
     formatResultFloat(root2, buffer2, sizeof(buffer2));
 
-    // Send the roots to the computer via Serial
+    // Envia as raízes para o computador via Serial
     for (char *p = buffer1; *p; p++) {
       while (!(UCSR0A & (1 << UDRE0)));
       UDR0 = *p;
     }
     while (!(UCSR0A & (1 << UDRE0)));
-    UDR0 = ' '; // Space separator
+    UDR0 = ' '; // Espaço separador
     for (char *p = buffer2; *p; p++) {
       while (!(UCSR0A & (1 << UDRE0)));
       UDR0 = *p;
     }
     while (!(UCSR0A & (1 << UDRE0)));
-    UDR0 = '\n'; // New line to indicate end of transmission
+    UDR0 = '\n'; // Nova linha para indicar fim da transmissão
   }
 }
 
+// Setup function: initializes LCD, keypad, and control variables
 void setup() {
   lcdInit();
   keypadInit();
   lcdClear();
   lcdSetCursor(0, 0);
-  lcdPrint("SciCalc-Equation"); // Initial LCD message
+  lcdPrint("SciCalc-Equation"); // Initial message on the LCD
 
-  // Set up Serial communication (if Arduino is connected to a PC)
+  // Configura a comunicação Serial (caso o Arduino esteja conectado ao PC)
   UBRR0H = 0; // Baud rate 9600
   UBRR0L = 103;
-  UCSR0B = (1 << TXEN0); // Enable transmission
-  UCSR0C = (1 << UCSZ01) | (1 << UCSZ00); // 8-bit format, no parity
-  
+  UCSR0B = (1 << TXEN0); // Habilita transmissão
+  UCSR0C = (1 << UCSZ01) | (1 << UCSZ00); // Formato de 8 bits, sem paridade
+
   eqInputBuffer[0] = '\0';
   eqInputLength = 0;
   cursorPosition = 0;
   lastBlinkTime_input = millis();
   blinkState_input = false;
-} // <-- Added closing brace for setup()
+}
 
+// Main loop: processes keypad input and updates the display
 void loop() {
   int keyIndex = getKeyIndex();
   if (keyIndex != -1)
