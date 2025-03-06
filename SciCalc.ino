@@ -364,71 +364,65 @@ void processSidePoly(const char *side, float polyArr[], char var) {
 // Solves the polynomial equation in the form <LHS>=<RHS>
 int solvePolynomialEquation(const char *eq, float roots[], char var) {
   if (!validateInput(eq))
-    return -1; // Return error if input is invalid
+    return -1; // Erro de validação
   char eqCopy[33];
   strncpy(eqCopy, eq, 32);
   eqCopy[32] = '\0';
   char *equalSign = strchr(eqCopy, '=');
   if (!equalSign)
-    return -1; // Return error if '=' is not found
+    return -1; // Erro: '=' não encontrado
   *equalSign = '\0';
   char *lhs = eqCopy, *rhs = equalSign + 1;
   
   float polyL[MAX_POLY_DEGREE+1] = {0};
   float polyR[MAX_POLY_DEGREE+1] = {0};
   
-  processSidePoly(lhs, polyL, var); // Process left-hand side
-  processSidePoly(rhs, polyR, var); // Process right-hand side
+  processSidePoly(lhs, polyL, var);
+  processSidePoly(rhs, polyR, var);
   
   if (isnan(polyL[0]) || isnan(polyR[0]))
-    return -1; // Parsing error
+    return -1; // Erro no parsing
   
   float poly[MAX_POLY_DEGREE+1];
   for (int i = 0; i <= MAX_POLY_DEGREE; i++) {
-    poly[i] = polyL[i] - polyR[i]; // Bring all terms to one side
+    poly[i] = polyL[i] - polyR[i]; // Transpõe todos os termos para um lado
   }
   
   int degree = MAX_POLY_DEGREE;
   while (degree > 0 && fabs(poly[degree]) < TOLERANCE)
-    degree--; // Determine the actual degree of the polynomial
+    degree--; // Determina o grau real do polinômio
   
   if (degree == 0) {
     if (fabs(poly[0]) < TOLERANCE)
-      return -2; // Infinite solutions if constant term is zero
+      return -2; // Soluções infinitas
     else
-      return 0;  // No solution if constant term is non-zero
+      return 0;  // Sem solução
   }
   if (degree == 1) {
-    roots[0] = -poly[0] / poly[1]; // Solve linear equation
+    roots[0] = -poly[0] / poly[1]; // Equação de 1º grau
     return 1;
   }
   if (degree == 2) {
     float a = poly[2], b = poly[1], c = poly[0];
     float disc = b * b - 4 * a * c;
     if (disc < 0)
-      return 0; // No real roots if discriminant is negative
+      return 0; // Sem raízes reais
     else if (fabs(disc) < TOLERANCE) {
-      roots[0] = -b / (2 * a); // Double root
+      roots[0] = -b / (2 * a); // Raiz dupla
       return 1;
     } else {
       roots[0] = (-b + sqrt(disc)) / (2 * a);
       roots[1] = (-b - sqrt(disc)) / (2 * a);
-      return 2; // Two distinct real roots
+      return 2;
     }
   }
-  // For degree ≥ 3, use sampling and bisection to find roots
+  // Para grau ≥ 3: utiliza amostragem e bissecção para encontrar todas as raízes reais
   float foundRoots[MAX_POLY_DEGREE] = {0};
   int count = findRealPolynomialRoots(poly, degree, foundRoots);
-  if (count == 0)
-    return 0; // Return 0 if no roots were found
-  else if (count == 1) {
-    roots[0] = foundRoots[0];
-    return 1;
-  } else {
-    roots[0] = foundRoots[0];
-    roots[1] = foundRoots[1];
-    return 2; // Return the first two roots found
+  for (int i = 0; i < count; i++) {
+    roots[i] = foundRoots[i]; // Armazena todas as raízes únicas encontradas
   }
+  return count; // Retorna o número de raízes reais encontradas
 }
 
 // Converts a float to a string, using scientific notation if needed
@@ -589,7 +583,6 @@ void processKeyPress_input(int keyIndex) {
       removeTokenAtCursor_input(); // Remove the previous character
     else if (keyIndex == 11) {
       char resultStr[17];
-      // If the input contains a variable, treat it as a polynomial equation
       if (strchr(eqInputBuffer, 'x') || strchr(eqInputBuffer, 'y') || strchr(eqInputBuffer, 'z')) {
         char var;
         if (strchr(eqInputBuffer, 'x'))
@@ -602,37 +595,51 @@ void processKeyPress_input(int keyIndex) {
           displayMessage(ERROR_MSG);
           return;
         }
-        float roots[2];
+        float roots[MAX_POLY_DEGREE]; // Array para armazenar todas as raízes
         int numRoots = solvePolynomialEquation(eqInputBuffer, roots, var);
-        if (numRoots == -1)
-          displayMessage(ERROR_MSG); // Parsing error in equation
-        else if (numRoots == -2)
-          displayMessage(INF_SOL_MSG); // Equation has infinite solutions
-        else if (numRoots == 0)
-          displayMessage(NOSOL_MSG); // No real solution found
-        else if (numRoots == 1) {
-          formatResultFloat(roots[0], resultStr, 17); // Format the single root found
-          updateBufferWithResult(resultStr);
-        }
-        else if (numRoots >= 2) {
-          char temp1[9], temp2[9];
-          formatResultFloat(roots[0], temp1, 9);
-          formatResultFloat(roots[1], temp2, 9);
-          snprintf(resultStr, 17, "%c=%s %c=%s", var, temp1, var, temp2); // Prepare string with two roots
+        if (numRoots == -1) {
+          displayMessage(ERROR_MSG);
+        } else if (numRoots == -2) {
+          displayMessage(INF_SOL_MSG);
+        } else if (numRoots == 0) {
+          displayMessage(NOSOL_MSG);
+        } else if (numRoots == 1) {
+          char temp[9];
+          formatResultFloat(roots[0], temp, sizeof(temp));
+          // Exibe no LCD: "X=1" (com a letra maiúscula)
+          snprintf(resultStr, sizeof(resultStr), "%c=%s", toupper(var), temp);
           displayMessage(resultStr);
-          // Envia o resultado via Serial se estiver conectado a um computador
-          sendRootsToSerial(roots[0], roots[1]);
+          // Envia via Serial no formato "x 1"
+          sendRootsToSerial(roots, numRoots, var);
+        } else if (numRoots >= 2) {
+          // Determina a menor e a maior raiz dentre todas
+          float min = roots[0], max = roots[0];
+          for (int i = 1; i < numRoots; i++) {
+            if (roots[i] < min)
+              min = roots[i];
+            if (roots[i] > max)
+              max = roots[i];
+          }
+          char tempMin[9], tempMax[9];
+          formatResultFloat(min, tempMin, sizeof(tempMin));
+          formatResultFloat(max, tempMax, sizeof(tempMax));
+          // Exibe no LCD no formato: "x=1 x=3"
+          snprintf(resultStr, sizeof(resultStr), "%c=%s %c=%s", tolower(var), tempMin, tolower(var), tempMax);
+          displayMessage(resultStr);
+          // Envia todas as raízes via Serial no formato "x 1 2 3 ..." (com a letra e os valores)
+          sendRootsToSerial(roots, numRoots, var);
         }
       }
       else {
-        float res = evaluateExpression(eqInputBuffer); // Evaluate arithmetic expression
+        float res = evaluateExpression(eqInputBuffer);
         if (isnan(res))
-          displayMessage(ERROR_MSG); // Display error if expression is invalid
+          displayMessage(ERROR_MSG);
         else if (isinf(res))
-          displayMessage(INF_SOL_MSG); // Display message for infinite result
+          displayMessage(INF_SOL_MSG);
         else {
-          formatResultFloat(res, resultStr, 17); // Format the expression result
-          updateBufferWithResult(resultStr);
+          char temp[17];
+          formatResultFloat(res, temp, sizeof(temp));
+          updateBufferWithResult(temp);
         }
       }
     }
@@ -668,27 +675,31 @@ void checkMultiTapTimeout_input() {
 }
 
 // Função para enviar as raízes via Serial, caso o Arduino esteja conectado ao PC
-void sendRootsToSerial(float root1, float root2) {
-  // Verifica se a porta serial está disponível para transmissão
-  if (UCSR0A & (1 << UDRE0)) {
-    char buffer1[10], buffer2[10];
-    formatResultFloat(root1, buffer1, sizeof(buffer1));
-    formatResultFloat(root2, buffer2, sizeof(buffer2));
-
-    // Envia as raízes para o computador via Serial
-    for (char *p = buffer1; *p; p++) {
+void sendRootsToSerial(float roots[], int numRoots, char var) {
+  // Envia a letra da incógnita (em minúscula)
+  char varStr[2];
+  varStr[0] = tolower(var);
+  varStr[1] = '\0';
+  for (char *p = varStr; *p; p++) {
+    while (!(UCSR0A & (1 << UDRE0)));
+    UDR0 = *p;
+  }
+  while (!(UCSR0A & (1 << UDRE0)));
+  UDR0 = ' '; // Espaço após a letra
+  
+  // Envia cada raiz separadamente, separadas por espaço
+  for (int i = 0; i < numRoots; i++) {
+    char buffer[10];
+    formatResultFloat(roots[i], buffer, sizeof(buffer));
+    for (char *p = buffer; *p; p++) {
       while (!(UCSR0A & (1 << UDRE0)));
       UDR0 = *p;
     }
     while (!(UCSR0A & (1 << UDRE0)));
     UDR0 = ' '; // Espaço separador
-    for (char *p = buffer2; *p; p++) {
-      while (!(UCSR0A & (1 << UDRE0)));
-      UDR0 = *p;
-    }
-    while (!(UCSR0A & (1 << UDRE0)));
-    UDR0 = '\n'; // Nova linha para indicar fim da transmissão
   }
+  while (!(UCSR0A & (1 << UDRE0)));
+  UDR0 = '\n'; // Nova linha ao final
 }
 
 // Setup function: initializes LCD, keypad, and control variables
