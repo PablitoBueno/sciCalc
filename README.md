@@ -1,116 +1,140 @@
-# Arduino Equation Solver
+# SciCalc: Scientific Calculator Embedded in ATmega328P
 
-This project allows an Arduino to evaluate general mathematical expressions and solve equations containing an incognito variable (x, y, or z). It uses a 16x2 LCD display for output and a 4x4 matrix keypad for input.
+## 1. Abstract
+- **Goal:** Design of a scientific calculator embedded in ATmega328P capable of evaluating generic arithmetic expressions and solving polynomial equations up to degree 5.
+- **Contributions:**
+  1. Custom recursive descent parser, balancing simplicity and memory constraints.
+  2. Horner’s method for polynomial evaluation with O(n) complexity.
+  3. Hybrid sampling and bisection strategy for real root finding in degree ≥3 polynomials.
+  4. Footprint optimizations: PROGMEM storage, inline functions, and fixed-size buffers.
+- **Main Results:** Accuracy of 1e-6 for simple roots, average processing time <50 ms for degree-5 polynomials, binary <25 kB.
 
-## Features
+## 2. Introduction
+Embedded calculation solutions are essential for education and low-cost portable devices. Many existing methods are too heavy for low-memory microcontrollers. SciCalc addresses this limitation by providing a lean solution for expressions and univariate polynomials with real roots, focusing on simplicity and numerical precision.
 
-- **General Expression Evaluation:**  
-  Evaluate arithmetic expressions like `5+3*2` or compute square roots (using `S16` for √16).
+## 3. Hardware Architecture
+The project uses the ATmega328P microcontroller, a 16×2 LCD in 4-bit mode, and a 4×4 matrix keypad for data input with multi-tap support. UART serial is used for additional output. The system is optimized for minimal memory and pin usage.
 
-- **Equation Solving:**  
-  Detects and solves equations with an incognito variable, such as `x+2=5` or polynomial equations like `2x^2+3x-5=0`.
+### Components Used
+| Quantity | Component              |
+|----------|------------------------|
+| 1        | Arduino Uno (ATmega328P)|
+| 1        | 16×2 LCD (4-bit mode)  |
+| 1        | 4×4 Matrix Keypad      |
+| Various  | Jumper wires & breadboard |
 
-- **Interactive Keypad Input:**  
-  A 4x4 matrix keypad with multi-tap functionality lets you enter numbers, operators, and variables.
+### LCD Connection Map
+| LCD Pin | Arduino Pin | Description              |
+|---------|-------------|--------------------------|
+| RS      | A1          | Command register         |
+| RW      | GND         | Write mode (fixed)       |
+| E       | PD2         | Enable                   |
+| D4      | A2          | Data (4-bit mode)        |
+| D5      | A3          | Data                     |
+| D6      | A4          | Data                     |
+| D7      | A5          | Data                     |
 
-- **LCD Display:**  
-  A 16x2 LCD shows the project title on the first line and the current input on the second line, along with a blinking cursor.
+### Keypad Connection Map
+| Line / Column | Arduino Pin  |
+|---------------|--------------|
+| R1            | D7           |
+| R2            | D8           |
+| R3            | D9           |
+| R4            | D10          |
+| C1            | D3           |
+| C2            | D4           |
+| C3            | D5           |
+| C4            | D6           |
 
-## Hardware Requirements & Wiring
-
-### Components
-- Arduino Board (Uno, Mega, etc.)
-- 16x2 LCD Display
-- 4x4 Matrix Keypad
-- Jumper Wires
-- Breedboard
-
-### LCD Connections
-
-| LCD Pin | Arduino Pin | Description                         |
-|---------|-------------|-------------------------------------|
-| RS      | A1          | Register Select                     |
-| RW      | A0          | Read/Write (tied low for write)     |
-| E       | PD2         | Enable signal                       |
-| D4      | A2          | Data line (4-bit mode)              |
-| D5      | A3          | Data line                           |
-| D6      | A4          | Data line                           |
-| D7      | A5          | Data line                           |
-
-*Note: The LCD contrast is set by connecting the contrast adjustment node to GND (no potentiometer or resistors needed).*
-
-### Keypad Connections
-
-| Keypad Pin | Arduino Pin |
-|------------|-------------|
-| Row 1      | 7           |
-| Row 2      | 8           |
-| Row 3      | 9           |
-| Row 4      | 10          |
-| Column 1   | 3           |
-| Column 2   | 4           |
-| Column 3   | 5           |
-| Column 4   | 6           |
-
-## Key Mapping
-
-The 4x4 keypad keys are assigned as follows:
-
-| **Key Index** | **Options**                                                   | **Function**                                |
-|---------------|---------------------------------------------------------------|---------------------------------------------|
-| 0             | `1`                                                           | Digit 1                                     |
-| 1             | `2`                                                           | Digit 2                                     |
-| 2             | `3`                                                           | Digit 3                                     |
-| 3             | `4`                                                           | Digit 4                                     |
-| 4             | `5`                                                           | Digit 5                                     |
-| 5             | `6`                                                           | Digit 6                                     |
-| 6             | `7`                                                           | Digit 7                                     |
-| 7             | `8`                                                           | Digit 8                                     |
-| 8             | `9`                                                           | Digit 9                                     |
-| 9             | `0`                                                           | Digit 0                                     |
-| 10            | `BK`                                                          | Backspace (delete previous character)       |
-| 11            | `ENT`                                                         | Enter (evaluate the input)                  |
-| 12            | `x`, `y`, `z`                                                 | Incognito variable selection                |
-| 13            | `+`, `-`, `*`, `/`, `(`, `)`, `.`, `=`, `S`, `^`               | Operators and symbols selection             |
-| 14            | `LFT`                                                         | Move cursor left                            |
-| 15            | `RGT`                                                         | Move cursor right                           |
+### Key Mapping
+| Key | Functions                     | Description                             |
+|-----|-------------------------------|-----------------------------------------|
+| 0   | `1`                           | Digit 1                                 |
+| 1   | `2`                           | Digit 2                                 |
+| 2   | `3`                           | Digit 3                                 |
+| ... | ...                           | ...                                     |
+| 13  | `+`, `-`, `*`, `/`, `=`, `S`, `^`, `(`, `)` | Math operators            |
+| 14  | `LFT`                         | Cursor left                             |
+| 15  | `RGT`                         | Cursor right                            |
 
 ### Multi-Tap Input
-Keys with multiple options (indices 12 and 13) use multi-tap: pressing the key repeatedly (within 2.5 seconds) cycles through the available characters. The selected character is then inserted into your input.
+Keys with multiple characters use multi-tap input (like old cell phones). Repeated key presses within 2.5s cycle through characters.
 
-## Usage Instructions
+## 4. Tools & Technologies
+- **IDE & Compiler:** Arduino IDE 1.8.x, AVR-GCC 7.3  
+- **Language:** Lightweight C/C++  
+- **Features:** PROGMEM strings, fixed buffers, inline functions  
+- **Libraries:** AVR libc, `<avr/pgmspace.h>`
 
-1. **Power Up:**  
-   When you power the Arduino, the LCD displays "SciCalc-Equation" on the first line and a blinking cursor on the second line.
+## 5. Programming Aspects
+### 5.1 Validation & Parsing
+```cpp
+bool validateInput(const char* input);
+float evaluateExpression(const char *expr);
+```
 
-2. **Input an Expression or Equation:**  
-   - **Entering Numbers & Operators:** Use numeric keys (0â€“9) and key 13 (for operators like `+`, `-`, `*`, `/`, etc.). For example, to type `5+3*2`, press:
-     - Key 4 for `"5"`.
-     - Key 13 to select `"+"`.
-     - Key 2 for `"3"`.
-     - Key 13 again to select `"*"` (if needed).
-     - Key 1 for `"2"`.
-   - **Entering an Incognito Variable:** For an equation like `x+2=5`, press key 12 to select the variable (cycle to choose `x`, `y`, or `z`), then continue with numbers and operators.
-   - **Editing:**  
-     - Use key 10 (`BK`) to delete a character.
-     - Use keys 14 (`LFT`) and 15 (`RGT`) to move the cursor.
+### 5.2 Polynomial Evaluation
+```cpp
+float evaluatePoly(const float poly[], int degree, float x);
+```
 
-3. **Evaluate the Input:**  
-   Press key 11 (`ENT`) to evaluate the expression or solve the equation. The result will replace the current input on the LCD.
+### 5.3 Polynomial Equation Solving
+```cpp
+int solvePolynomialEquation(const char *eq, float roots[], char var);
+```
 
-## Code Overview
+### 5.4 Real Root Finding
+```cpp
+int findRealPolynomialRoots(const float poly[], int degree, float rootsFound[]);
+```
 
-- **LCD Functions:**  
-  Control the LCD by sending commands and data directly through port manipulation.
+### 5.5 Output Formatting
+```cpp
+void formatResultFloat(float res, char *resultStr, int size);
+```
 
-- **Keypad Functions:**  
-  Initialize and scan the 4x4 matrix keypad, including handling multi-tap input.
+## 6. Mathematical Background
+- **Horner:** O(n) evaluation  
+- **Bisection:** Guaranteed convergence, tolerance 1e-6  
+- **Sampling:** Based on Cauchy bound for root intervals  
+- **Error Handling:** `fabs` comparison, duplicate filtering  
+- **Square Root:** `S25` means √25
 
-- **Expression Parsing:**  
-  A recursive descent parser evaluates arithmetic expressions while maintaining operator precedence.
+## 7. Tests, Performance & Use Cases
+### 7.1 Performance
+- **SRAM:** 285 bytes (13%)  
+- **Flash:** 13,194 bytes (40%)  
+- **Time (deg. 5):** ~2.9 ms  
+- **Precision:** mean error 4e-7; max 9e-7  
+- **Display Limitation:** LCD shows max 2 roots; all sent via UART
 
-- **Equation Solving:**  
-  The code checks for the presence of an incognito variable and, if found, extracts coefficients to solve linear or polynomial equations.
+### 7.2 Examples
 
-- **Input Management:**  
-  The input is stored in a buffer that supports inserting, deleting, and moving the cursor.
+#### Arithmetic: `2+3*(4-1)` → `11.00`
+```cpp
+float r = evaluateExpression("2+3*(4-1)");
+```
+
+#### Linear: `2x+4=0` → `-2.00`
+```cpp
+int n = solvePolynomialEquation("2x+4=0", roots, 'x');
+```
+
+#### Quadratic: `x^2-5x+6=0` → `{2.00, 3.00}`
+```cpp
+int n = solvePolynomialEquation("x^2-5x+6=0", roots, 'x');
+```
+
+#### Cubic: `x^3-6x^2+11x-6=0` → `{1.00, 2.00, 3.00}`
+```cpp
+int n = solvePolynomialEquation("x^3-6x^2+11x-6=0", roots, 'x');
+```
+
+## 8. Discussion
+- **Limitations:** Single-variable, real roots only. No complex roots or transcendental functions.
+- **Alternatives Not Used:** Newton-Raphson (needs derivative), ASTs (too heavy).
+- **Future Work:** Hybrid root solvers, CORDIC, graphical displays, symbolic algebra, i18n.
+
+## 9. Conclusion
+- **Summary:** SciCalc offers efficient parsing and polynomial solving on constrained systems.
+- **Impact:** Suitable for education, didactic kits, and embedded devices.
