@@ -1,5 +1,7 @@
 # SciCalc: Scientific Calculator Embedded in ATmega328P
 
+For clarity and adaptation to Tinkercad, a simulation model is available at https://www.tinkercad.com/things/15OlVMyJR4i-scicalc, which uses different connections, commands, and a simplified code compared to the GitHub version, but offers the same functionality and capabilities.
+
 ## 1. Abstract
 - **Goal:** Design of a scientific calculator embedded in ATmega328P capable of evaluating generic arithmetic expressions and solving polynomial equations up to degree 5.
 - **Contributions:**
